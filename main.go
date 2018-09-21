@@ -23,7 +23,20 @@ type cobinhoodMessage struct {
 	Timeframe   string `json:"timeframe,omitempty"` //for candles
 }
 
-type orderbookData struct {
+type recvMessage struct {
+	Header []string        `json:"h"`
+	Data   json.RawMessage `json:"d"`
+}
+
+type orderPosting struct {
+	Price float32
+	Size  int
+	Count float32
+}
+
+type orderbookPosting struct {
+	Bids []orderPosting `json:"bids"`
+	Asks []orderPosting `json:"asks"`
 }
 
 func main() {
@@ -59,11 +72,13 @@ func main() {
 	subscribeJSON, _ := json.Marshal(subscribe)
 	c.WriteMessage(websocket.TextMessage, subscribeJSON)
 
+	orderChannel := make(chan recvMessage, 100)
+	go orderbookWorker("ETH-BTC", orderChannel)
+
+	// receive messages
 	go func() {
 		defer close(done)
-
-		var objmap map[string]*json.RawMessage
-		//err := json.Unmarshal(data, &objmap)
+		var recvMess recvMessage
 
 		for {
 			_, message, err := c.ReadMessage()
@@ -71,19 +86,15 @@ func main() {
 				log.Println("read:", err)
 				return
 			}
-			json.Unmarshal(message, &objmap)
+			json.Unmarshal(message, &recvMess)
 
-			var header []string
-			err = json.Unmarshal(*objmap["h"], &header)
-
-			//log.Printf("recv: header: %s, data: %s", header, string(*objmap["d"]))
-
-			if strings.Contains(header[0], "order-book") {
-				log.Printf("recv: header: %s, data: %s", header, string(*objmap["d"]))
+			if strings.Contains(recvMess.Header[0], "order-book") {
+				orderChannel <- recvMess
 			}
 		}
 	}()
 
+	// send messages
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -112,6 +123,18 @@ func main() {
 			case <-time.After(time.Second):
 			}
 			return
+		}
+	}
+}
+
+func orderbookWorker(tradingPair string, recvChannel <-chan recvMessage) {
+	var orderbookPos orderbookPosting
+
+	for message := range recvChannel {
+		json.Unmarshal(message.Data, &orderbookPos)
+
+		for _, elem := range orderbookPos.Asks {
+			print(elem.Price)
 		}
 	}
 }
