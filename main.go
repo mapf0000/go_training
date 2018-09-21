@@ -7,16 +7,24 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-type CobinhoodMessage struct {
-	Action string `json:"action,omitempty"`
+var addr = flag.String("addr", "ws.cobinhood.com", "http service address")
+
+type cobinhoodMessage struct {
+	Action      string `json:"action,omitempty"`
+	Type        string `json:"type,omitempty"`
+	TradingPair string `json:"trading_pair_id,omitempty"`
+	Precision   string `json:"precision,omitempty"` //for orderbooks
+	Timeframe   string `json:"timeframe,omitempty"` //for candles
 }
 
-var addr = flag.String("addr", "ws.cobinhood.com", "http service address")
+type orderbookData struct {
+}
 
 func main() {
 	flag.Parse()
@@ -36,21 +44,43 @@ func main() {
 
 	done := make(chan struct{})
 
-	ping := CobinhoodMessage{
+	ping := cobinhoodMessage{
 		Action: "ping",
 	}
 	pingJSON, _ := json.Marshal(ping)
 	print(string(pingJSON))
 
+	subscribe := cobinhoodMessage{
+		Action:      "subscribe",
+		Type:        "order-book",
+		TradingPair: "ETH-BTC",
+		Precision:   "1E-6",
+	}
+	subscribeJSON, _ := json.Marshal(subscribe)
+	c.WriteMessage(websocket.TextMessage, subscribeJSON)
+
 	go func() {
 		defer close(done)
+
+		var objmap map[string]*json.RawMessage
+		//err := json.Unmarshal(data, &objmap)
+
 		for {
 			_, message, err := c.ReadMessage()
 			if err != nil {
 				log.Println("read:", err)
 				return
 			}
-			log.Printf("recv: %s", message)
+			json.Unmarshal(message, &objmap)
+
+			var header []string
+			err = json.Unmarshal(*objmap["h"], &header)
+
+			//log.Printf("recv: header: %s, data: %s", header, string(*objmap["d"]))
+
+			if strings.Contains(header[0], "order-book") {
+				log.Printf("recv: header: %s, data: %s", header, string(*objmap["d"]))
+			}
 		}
 	}()
 
