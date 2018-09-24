@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"net/url"
 	"os"
@@ -29,10 +28,15 @@ type recvMessage struct {
 	Data   json.RawMessage `json:"d"`
 }
 
-type orderbookPosition struct {
+type orderPosting struct {
 	Price float32
 	Size  int
 	Count float32
+}
+
+type orderbookPosting struct {
+	Bids []orderPosting `json:"bids"`
+	Asks []orderPosting `json:"asks"`
 }
 
 func main() {
@@ -75,7 +79,6 @@ func main() {
 	go func() {
 		defer close(done)
 		var recvMess recvMessage
-		//var objmap map[string]*json.RawMessage
 
 		for {
 			_, message, err := c.ReadMessage()
@@ -83,8 +86,6 @@ func main() {
 				log.Println("read:", err)
 				return
 			}
-			fmt.Println(string(message))
-			//json.Unmarshal(message, &objmap)
 			json.Unmarshal(message, &recvMess)
 
 			if strings.Contains(recvMess.Header[0], "order-book") {
@@ -127,17 +128,9 @@ func main() {
 }
 
 func orderbookWorker(tradingPair string, recvChannel <-chan recvMessage) {
+	var orderbookPos orderbookPosting
 
 	for message := range recvChannel {
-		var objmap map[string]*json.RawMessage
-		var bids []orderbookPosition
-		var asks []orderbookPosition
 
-		json.Unmarshal(message.Data, &objmap)
-		json.Unmarshal(*objmap["bids"], &bids)
-		json.Unmarshal(*objmap["asks"], &asks)
-
-		//fmt.Println(asks)
-		//fmt.Println(bids)
 	}
 }
