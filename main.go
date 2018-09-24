@@ -207,11 +207,13 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 					for k := range ob.bids.elements {
 						ob.bids.sortedKeys = append(ob.bids.sortedKeys, k)
 					}
-					sort.Float64s(ob.bids.sortedKeys)
-					sort.Reverse(ob.bids.sortedKeys)
+					sort.Slice(ob.bids.sortedKeys, func(i, j int) bool {
+						return ob.bids.sortedKeys[i] > ob.bids.sortedKeys[j]
+					})
 
 				}()
 				wg.Wait()
+				init = true
 
 				fmt.Println("----------- Bids -----------")
 				for _, k := range ob.bids.sortedKeys {
@@ -225,8 +227,27 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 				fmt.Println("----------- END State -----------")
 			} else {
-				if init != false {
+				if init == true {
 					fmt.Println("----------- Update -----------")
+
+					//process bids
+					for _, e := range bids {
+						v, ok := ob.bids.elements[e.Price]
+						if ok {
+							//entry for this price is present
+							v -= e.Size * e.Count
+							if v == 0 {
+								delete(ob.bids.elements, e.Price)
+								//TODO remove key from sortedkeys
+							} else {
+								ob.bids.elements[e.Price] = v
+							}
+						} else {
+							//new entry for this price has to be added
+
+						}
+
+					}
 				}
 			}
 		}
