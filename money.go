@@ -6,31 +6,49 @@ import (
 	"strings"
 )
 
+// Amount value information
 type Amount struct {
 	val int64
 }
 
+// DecimalPlaces stores precision information
 type DecimalPlaces struct {
 	val int
 }
 
-type money struct {
+// Money represents Monetary value and prescision information
+type Money struct {
 	amount        *Amount
 	decimalPlaces *DecimalPlaces
 }
 
-func New(amount int64, decimalPlaces int) *money {
-	return &money{
+// NewFromInt creates new instance of Money from int64 and decimalPlaces
+func NewFromInt(amount int64, decimalPlaces int) *Money {
+	return &Money{
 		amount:        &Amount{val: amount},
 		decimalPlaces: &DecimalPlaces{val: decimalPlaces},
 	}
 }
 
-func (m *money) Amount() int64 {
+// NewFromFloat creates new instance of Money from float64
+func NewFromFloat(f float64) *Money {
+	s := fmt.Sprintf("%g", f)
+	i := strings.Index(s, ".") + 1
+
+	m := &Money{
+		amount:        &Amount{val: 0},
+		decimalPlaces: &DecimalPlaces{val: len(s) - i},
+	}
+	m.parseString(s)
+
+	return m
+}
+
+func (m *Money) Amount() int64 {
 	return m.amount.val
 }
 
-func (m *money) parseString(s string) {
+func (m *Money) parseString(s string) {
 	if strings.Contains(s, ".") {
 		s = strings.Replace(s, ".", "", -1)
 	} else {
@@ -43,12 +61,12 @@ func (m *money) parseString(s string) {
 	m.amount.val = i
 }
 
-func (m *money) parseFloat(f float64) {
+func (m *Money) parseFloat(f float64) {
 	s := fmt.Sprintf("%f", f)
 	m.parseString(s)
 }
 
-func (m *money) compare(om *money) int {
+func (m *Money) compare(om *Money) int {
 	switch {
 	case m.amount.val > om.amount.val:
 		return 1
