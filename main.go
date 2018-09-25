@@ -233,18 +233,32 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 					//process bids
 					for _, e := range bids {
 						v, ok := ob.bids.elements[e.Price]
+
 						if ok {
 							//entry for this price is present
 							v -= e.Size * e.Count
 							if v == 0 {
+								//no remaining volume at this price
+								//remove from elements
 								delete(ob.bids.elements, e.Price)
-								//TODO remove key from sortedkeys
+								//remove key from sortedkeys
+								for i, v := range ob.bids.sortedKeys {
+									if v == e.Price {
+										ob.bids.sortedKeys = append(ob.bids.sortedKeys[:i], ob.bids.sortedKeys[i+1:]...)
+										break
+									}
+								}
 							} else {
 								ob.bids.elements[e.Price] = v
 							}
 						} else {
-							//new entry for this price has to be added
-
+							//add new entry for this price
+							ob.bids.elements[e.Price] = e.Size * e.Count
+							//insert key into sorted keys
+							i := sort.Search(len(ob.bids.sortedKeys), func(i int) bool { return ob.bids.sortedKeys[i] > e.Price })
+							ob.bids.sortedKeys = append(ob.bids.sortedKeys, 0)
+							copy(ob.bids.sortedKeys[i+1:], ob.bids.sortedKeys[i:])
+							ob.bids.sortedKeys[i] = e.Price
 						}
 
 					}
