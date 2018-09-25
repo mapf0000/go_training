@@ -62,7 +62,6 @@ func (o *orderbookPosition) UnmarshalJSON(bs []byte) error {
 
 func setupCurrencies() {
 	precision := 6
-
 	money.AddCurrency("BTC", "₿", "1₿", ".", ",", precision)
 	money.AddCurrency("ETH", "Ξ", "1Ξ", ".", ",", precision)
 }
