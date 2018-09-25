@@ -276,7 +276,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 							if ok {
 								//entry for this price is present
 								v -= e.Size * e.Count
-								if v == 0 {
+								if v <= 0 {
 									//no remaining volume at this price
 									//remove from elements
 									delete(ob.bids.elements, e.Price)
@@ -304,6 +304,15 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 					wg.Wait()
 
+					fmt.Println("----------- Bids -----------")
+					for _, k := range ob.bids.sortedKeys {
+						fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
+					}
+
+					fmt.Println("----------- Asks -----------")
+					for _, k := range ob.asks.sortedKeys {
+						fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
+					}
 				}
 			}
 		}
