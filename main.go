@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/rhymond/go-money"
 )
 
 var addr = flag.String("addr", "ws.cobinhood.com", "http service address")
@@ -34,14 +33,14 @@ type recvMessage struct {
 }
 
 type orderbookPosition struct {
-	Price float64
-	Size  float64
-	Count float64
+	price int64
+	size  int64
+	count int64
 }
 
 type sortedOrders struct {
-	elements   map[float64]float64
-	sortedKeys []float64
+	elements   map[int64]int64
+	sortedKeys []int64
 }
 
 type orderbook struct {
@@ -54,21 +53,25 @@ func (o *orderbookPosition) UnmarshalJSON(bs []byte) error {
 	arr := []interface{}{}
 	json.Unmarshal(bs, &arr)
 	// TODO: add error handling here.
-	o.Price, _ = strconv.ParseFloat(arr[0].(string), 64)
-	o.Size, _ = strconv.ParseFloat(arr[1].(string), 64)
-	o.Count, _ = strconv.ParseFloat(arr[2].(string), 64)
+	o.price = parseIntMoney(arr[0].(string))
+	o.size, _ = strconv.ParseInt(arr[1].(string), 10, 64)
+	o.count = parseIntMoney(arr[2].(string))
 	return nil
 }
 
-func setupCurrencies() {
-	precision := 6
-	money.AddCurrency("BTC", "₿", "1₿", ".", ",", precision)
-	money.AddCurrency("ETH", "Ξ", "1Ξ", ".", ",", precision)
-}
+// func (o *orderbookPosition) UnmarshalJSON(bs []byte) error {
+// 	arr := []interface{}{}
+// 	json.Unmarshal(bs, &arr)
+// 	// TODO: add error handling here.
+// 	o.Price, _ = strconv.ParseFloat(arr[0].(string), 64)
+// 	o.Size, _ = strconv.Atoi(arr[1].(string))
+// 	o.Count, _ = strconv.ParseFloat(arr[2].(string), 64)
+// 	return nil
+// }
 
-func parseIntMoney(s string) int {
-	strings.Replace(s, ".", "", -1)
-	i, _ := strconv.Atoi(s)
+func parseIntMoney(s string) int64 {
+	s = strings.Replace(s, ".", "", -1)
+	i, _ := strconv.ParseInt(s, 10, 64)
 	return i
 }
 
@@ -192,17 +195,19 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 				go func() {
 					defer wg.Done()
 					//fill map with order positions
-					ob.asks.elements = make(map[float64]float64)
+					ob.asks.elements = make(map[int64]int64)
 					for _, e := range asks {
-						ob.asks.elements[e.Price] = e.Size * e.Count
+						ob.asks.elements[e.price] = e.count * e.size
 					}
 
 					//create sorted key slice as lookup
-					ob.asks.sortedKeys = []float64{}
+					ob.asks.sortedKeys = []int64{}
 					for k := range ob.asks.elements {
 						ob.asks.sortedKeys = append(ob.asks.sortedKeys, k)
 					}
-					sort.Float64s(ob.asks.sortedKeys)
+					sort.Slice(ob.asks.sortedKeys, func(i, j int) bool {
+						return ob.asks.sortedKeys[i] < ob.asks.sortedKeys[j]
+					})
 
 				}()
 
@@ -210,13 +215,13 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 				go func() {
 					defer wg.Done()
 					//fill map with order positions
-					ob.bids.elements = make(map[float64]float64)
+					ob.bids.elements = make(map[int64]int64)
 					for _, e := range bids {
-						ob.bids.elements[e.Price] = e.Size * e.Count
+						ob.bids.elements[e.price] = e.size * e.count
 					}
 
 					//create sorted key slice as lookup
-					ob.bids.sortedKeys = []float64{}
+					ob.bids.sortedKeys = []int64{}
 					for k := range ob.bids.elements {
 						ob.bids.sortedKeys = append(ob.bids.sortedKeys, k)
 					}
@@ -228,15 +233,15 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 				wg.Wait()
 				init = true
 
-				fmt.Println("----------- Bids -----------")
-				for _, k := range ob.bids.sortedKeys {
-					fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
-				}
+				// fmt.Println("----------- Bids -----------")
+				// for _, k := range ob.bids.sortedKeys {
+				// 	fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
+				// }
 
-				fmt.Println("----------- Asks -----------")
-				for _, k := range ob.asks.sortedKeys {
-					fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
-				}
+				// fmt.Println("----------- Asks -----------")
+				// for _, k := range ob.asks.sortedKeys {
+				// 	fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
+				// }
 
 				fmt.Println("----------- END State -----------")
 			} else {
@@ -246,99 +251,102 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 					var wg sync.WaitGroup
 					wg.Add(2)
 
+					//process asks
 					go func() {
 						defer wg.Done()
-						//process asks
+
 						for _, e := range asks {
-							v, ok := ob.asks.elements[e.Price]
+							v, ok := ob.asks.elements[e.price]
 
 							if ok {
 								//entry for this price is present
-								if e.Size < 0 {
+								if e.size < 0 {
 									//diff
-									v -= -1 * e.Size * e.Count
+									v -= -1 * e.size * e.count
 								} else {
 									//add
-									v += e.Size * e.Count
+									v += e.size * e.count
 								}
 								if v <= 0 {
 									//no remaining volume at this price
 									//remove from elements
-									delete(ob.asks.elements, e.Price)
+									delete(ob.asks.elements, e.price)
 									//remove key from sortedkeys
 									for i, v := range ob.asks.sortedKeys {
-										if v == e.Price {
+										if v == e.price {
 											ob.asks.sortedKeys = append(ob.asks.sortedKeys[:i], ob.asks.sortedKeys[i+1:]...)
 											break
 										}
 									}
 								} else {
-									ob.asks.elements[e.Price] = v
+									ob.asks.elements[e.price] = v
 								}
 							} else {
 								//add new entry for this price
-								ob.asks.elements[e.Price] = e.Size * e.Count
+								ob.asks.elements[e.price] = e.size * e.count
 								//insert key into sorted keys
-								i := sort.Search(len(ob.asks.sortedKeys), func(i int) bool { return ob.asks.sortedKeys[i] > e.Price })
+								i := sort.Search(len(ob.asks.sortedKeys), func(i int) bool { return ob.asks.sortedKeys[i] > e.price })
 								ob.asks.sortedKeys = append(ob.asks.sortedKeys, 0)
 								copy(ob.asks.sortedKeys[i+1:], ob.asks.sortedKeys[i:])
-								ob.asks.sortedKeys[i] = e.Price
+								ob.asks.sortedKeys[i] = e.price
 							}
 						}
 					}()
 
+					//process bids
 					go func() {
 						defer wg.Done()
-						//process bids
+
 						for _, e := range bids {
-							v, ok := ob.bids.elements[e.Price]
+							v, ok := ob.bids.elements[e.price]
 
 							if ok {
 								//entry for this price is present
-								if e.Size < 0 {
+								delete(ob.bids.elements, e.price)
+								if e.size < 0 {
 									//diff
-									v -= -1 * e.Size * e.Count
+									v -= -1 * e.size * e.count
 								} else {
 									//add
-									v += e.Size * e.Count
+									v += e.size * e.count
 								}
 								if v <= 0 {
 									//no remaining volume at this price
 									//remove from elements
-									delete(ob.bids.elements, e.Price)
+									delete(ob.bids.elements, e.price)
 									//remove key from sortedkeys
 									for i, v := range ob.bids.sortedKeys {
-										if v == e.Price {
+										if v == e.price {
 											ob.bids.sortedKeys = append(ob.bids.sortedKeys[:i], ob.bids.sortedKeys[i+1:]...)
 											break
 										}
 									}
 								} else {
-									ob.bids.elements[e.Price] = v
+									ob.bids.elements[e.price] = v
 								}
 							} else {
 								//add new entry for this price
-								ob.bids.elements[e.Price] = e.Size * e.Count
+								ob.bids.elements[e.price] = e.size * e.count
 								//insert key into sorted keys
-								i := sort.Search(len(ob.bids.sortedKeys), func(i int) bool { return ob.bids.sortedKeys[i] > e.Price })
+								i := sort.Search(len(ob.bids.sortedKeys), func(i int) bool { return ob.bids.sortedKeys[i] > e.price })
 								ob.bids.sortedKeys = append(ob.bids.sortedKeys, 0)
 								copy(ob.bids.sortedKeys[i+1:], ob.bids.sortedKeys[i:])
-								ob.bids.sortedKeys[i] = e.Price
+								ob.bids.sortedKeys[i] = e.price
 							}
 						}
 					}()
 
 					wg.Wait()
 
-					fmt.Println("----------- Bids -----------")
-					for _, k := range ob.bids.sortedKeys {
-						fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
-					}
+					// fmt.Println("----------- Bids -----------")
+					// for _, k := range ob.bids.sortedKeys {
+					// 	fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
+					// }
 
-					fmt.Println("----------- Asks -----------")
-					for _, k := range ob.asks.sortedKeys {
-						fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
-					}
+					// fmt.Println("----------- Asks -----------")
+					// for _, k := range ob.asks.sortedKeys {
+					// 	fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
+					// }
 				}
 			}
 		}
