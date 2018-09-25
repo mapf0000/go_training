@@ -227,6 +227,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 				fmt.Println("----------- END State -----------")
 			} else {
+				fmt.Println(string(message.Data))
 				if init == true {
 					fmt.Println("----------- Update -----------")
 					var wg sync.WaitGroup
@@ -240,8 +241,14 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 							if ok {
 								//entry for this price is present
-								v -= e.Size * e.Count
-								if v == 0 {
+								if e.Size < 0 {
+									//diff
+									v -= -1 * e.Size * e.Count
+								} else {
+									//add
+									v += e.Size * e.Count
+								}
+								if v <= 0 {
 									//no remaining volume at this price
 									//remove from elements
 									delete(ob.asks.elements, e.Price)
@@ -275,7 +282,13 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 							if ok {
 								//entry for this price is present
-								v -= e.Size * e.Count
+								if e.Size < 0 {
+									//diff
+									v -= -1 * e.Size * e.Count
+								} else {
+									//add
+									v += e.Size * e.Count
+								}
 								if v <= 0 {
 									//no remaining volume at this price
 									//remove from elements
