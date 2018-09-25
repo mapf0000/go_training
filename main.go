@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rhymond/go-money"
 )
 
 var addr = flag.String("addr", "ws.cobinhood.com", "http service address")
@@ -57,6 +58,12 @@ func (o *orderbookPosition) UnmarshalJSON(bs []byte) error {
 	o.Size, _ = strconv.ParseFloat(arr[1].(string), 64)
 	o.Count, _ = strconv.ParseFloat(arr[2].(string), 64)
 	return nil
+}
+
+func setupCurrencies() {
+	precision := 6
+	money.AddCurrency("BTC", "₿", "1₿", ".", ",", precision)
+	money.AddCurrency("ETH", "Ξ", "1Ξ", ".", ",", precision)
 }
 
 func main() {
