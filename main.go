@@ -62,9 +62,14 @@ func (o *orderbookPosition) UnmarshalJSON(bs []byte) error {
 
 func setupCurrencies() {
 	precision := 6
-
 	money.AddCurrency("BTC", "₿", "1₿", ".", ",", precision)
 	money.AddCurrency("ETH", "Ξ", "1Ξ", ".", ",", precision)
+}
+
+func parseIntMoney(s string) int {
+	strings.Replace(s, ".", "", -1)
+	i, _ := strconv.Atoi(s)
+	return i
 }
 
 func main() {
