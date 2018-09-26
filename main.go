@@ -99,27 +99,27 @@ func main() {
 	subscribe = cobinhoodMessage{
 		Action:      "subscribe",
 		Type:        "order-book",
-		TradingPair: "EOS-BTC",
-		Precision:   "1E-6",
+		TradingPair: "BTC-USDT",
+		Precision:   "1E-1",
 	}
 	subscribeJSON, _ = json.Marshal(subscribe)
 	c.WriteMessage(websocket.TextMessage, subscribeJSON)
 
-	orderChannelEosBtc := make(chan recvMessage, 100)
-	go orderbookWorker("EOS-BTC", orderChannelEosBtc)
+	orderChannelBtcUSD := make(chan recvMessage, 100)
+	go orderbookWorker("BTC-USDT", orderChannelBtcUSD)
 
 	// subscription EOS-ETH
 	subscribe = cobinhoodMessage{
 		Action:      "subscribe",
 		Type:        "order-book",
-		TradingPair: "EOS-ETH",
-		Precision:   "1E-6",
+		TradingPair: "ETH-USDT",
+		Precision:   "1E-1",
 	}
 	subscribeJSON, _ = json.Marshal(subscribe)
 	c.WriteMessage(websocket.TextMessage, subscribeJSON)
 
-	orderChannelEosEth := make(chan recvMessage, 100)
-	go orderbookWorker("EOS-ETH", orderChannelEosBtc)
+	orderChannelEthUSD := make(chan recvMessage, 100)
+	go orderbookWorker("ETH-USDT", orderChannelEthUSD)
 
 	// receive messages
 	go func() {
@@ -144,18 +144,19 @@ func main() {
 						// fmt.Println("ETH-BTC")
 						// fmt.Println("Header:", recvMess.Header)
 						// fmt.Println("Data:", string(recvMess.Data))
-						//orderChannelEthBtc <- recvMess
-					case strings.Contains(recvMess.Header[0], "EOS-BTC"):
+						orderChannelEthBtc <- recvMess
+					case strings.Contains(recvMess.Header[0], "BTC-USDT"):
 						// fmt.Println("EOS-BTC")
 						// fmt.Println("Header:", recvMess.Header)
 						// fmt.Println("Data:", string(recvMess.Data))
-						//orderChannelEosBtc <- recvMess
-					case strings.Contains(recvMess.Header[0], "EOS-ETH"):
+						orderChannelBtcUSD <- recvMess
+					case strings.Contains(recvMess.Header[0], "ETH-USDT"):
 						// fmt.Println("EOS-ETH")
-						fmt.Println("Header:", recvMess.Header)
+						// fmt.Println("Header:", recvMess.Header)
 						// fmt.Println("UPDATE/STATE:", recvMess.Header[2])
-						fmt.Println("Data:", string(recvMess.Data))
-						orderChannelEosEth <- recvMess
+						// fmt.Println("Data:", string(recvMess.Data))
+						orderChannelEthUSD <- recvMess
+						// fmt.Println("Data:", string(recvMess.Data))
 					}
 				}
 
@@ -202,7 +203,6 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 	ob.market = market
 
 	for message := range recvChannel {
-		fmt.Println("----------- BEGIN Orderbook processing -----------")
 		objmap := map[string]*json.RawMessage{}
 		bids := []orderbookPosition{}
 		asks := []orderbookPosition{}
@@ -216,7 +216,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 			if strings.Contains(message.Header[2], "s") {
 				fmt.Println("----------- BEGIN State -----------")
-				var wg sync.WaitGroup
+				var wg = sync.WaitGroup{}
 				wg.Add(2)
 
 				//process asks
@@ -266,17 +266,17 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 				init = true
 				fmt.Println("Init: ", market)
 
-				fmt.Println("----------- Bids -----------")
-				for _, k := range ob.bids.sortedKeys {
-					fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
-				}
+				// fmt.Println("----------- Bids -----------")
+				// for _, k := range ob.bids.sortedKeys {
+				// 	fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
+				// }
 
-				fmt.Println("----------- Asks -----------")
-				for _, k := range ob.asks.sortedKeys {
-					fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
-				}
+				// fmt.Println("----------- Asks -----------")
+				// for _, k := range ob.asks.sortedKeys {
+				// 	fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
+				// }
 
-				fmt.Println("----------- END State -----------")
+				// fmt.Println("----------- END State -----------")
 				return
 			} else {
 				// fmt.Println(string(message.Data))
