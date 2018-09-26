@@ -93,7 +93,8 @@ func main() {
 	c.WriteMessage(websocket.TextMessage, subscribeJSON)
 
 	orderChannelEthBtc := make(chan recvMessage, 100)
-	go orderbookWorker("ETH-BTC", orderChannelEthBtc)
+	obChEthBtc := make(chan orderbook)
+	go orderbookWorker("ETH-BTC", orderChannelEthBtc, obChEthBtc)
 
 	// subscription EOS-BTC
 	subscribe = cobinhoodMessage{
@@ -106,7 +107,8 @@ func main() {
 	c.WriteMessage(websocket.TextMessage, subscribeJSON)
 
 	orderChannelBtcUSD := make(chan recvMessage, 100)
-	go orderbookWorker("BTC-USDT", orderChannelBtcUSD)
+	obChBtcUSD := make(chan orderbook)
+	go orderbookWorker("BTC-USDT", orderChannelBtcUSD, obChBtcUSD)
 
 	// subscription EOS-ETH
 	subscribe = cobinhoodMessage{
@@ -119,7 +121,19 @@ func main() {
 	c.WriteMessage(websocket.TextMessage, subscribeJSON)
 
 	orderChannelEthUSD := make(chan recvMessage, 100)
-	go orderbookWorker("ETH-USDT", orderChannelEthUSD)
+	obChEthUSD := make(chan orderbook)
+	go orderbookWorker("ETH-USDT", orderChannelEthUSD, obChEthUSD)
+
+	go func() {
+
+		for {
+			select {
+			case <-obChEthBtc:
+			case <-obChBtcUSD:
+			case <-obChEthUSD:
+			}
+		}
+	}()
 
 	// receive messages
 	go func() {
@@ -197,7 +211,7 @@ func main() {
 	}
 }
 
-func orderbookWorker(market string, recvChannel <-chan recvMessage) {
+func orderbookWorker(market string, recvChannel <-chan recvMessage, retChannel chan<- orderbook) {
 	init := false
 	ob := orderbook{}
 	ob.market = market
@@ -277,7 +291,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 				// }
 
 				// fmt.Println("----------- END State -----------")
-				return
+				retChannel <- ob
 			} else {
 				// fmt.Println(string(message.Data))
 				if init == true {
@@ -386,6 +400,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 					// for _, k := range ob.asks.sortedKeys {
 					// 	fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
 					// }
+					retChannel <- ob
 				}
 			}
 		}
