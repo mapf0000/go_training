@@ -82,6 +82,7 @@ func main() {
 	}
 	pingJSON, _ := json.Marshal(ping)
 
+	// subscription ETH-BTC
 	subscribe := cobinhoodMessage{
 		Action:      "subscribe",
 		Type:        "order-book",
@@ -91,8 +92,34 @@ func main() {
 	subscribeJSON, _ := json.Marshal(subscribe)
 	c.WriteMessage(websocket.TextMessage, subscribeJSON)
 
-	orderChannel := make(chan recvMessage, 100)
-	go orderbookWorker("ETH-BTC", orderChannel)
+	orderChannelEthBtc := make(chan recvMessage, 100)
+	go orderbookWorker("ETH-BTC", orderChannelEthBtc)
+
+	// subscription EOS-BTC
+	subscribe = cobinhoodMessage{
+		Action:      "subscribe",
+		Type:        "order-book",
+		TradingPair: "EOS-BTC",
+		Precision:   "1E-6",
+	}
+	subscribeJSON, _ = json.Marshal(subscribe)
+	c.WriteMessage(websocket.TextMessage, subscribeJSON)
+
+	orderChannelEosBtc := make(chan recvMessage, 100)
+	go orderbookWorker("EOS-BTC", orderChannelEosBtc)
+
+	// subscription EOS-ETH
+	subscribe = cobinhoodMessage{
+		Action:      "subscribe",
+		Type:        "order-book",
+		TradingPair: "EOS-ETH",
+		Precision:   "1E-6",
+	}
+	subscribeJSON, _ = json.Marshal(subscribe)
+	c.WriteMessage(websocket.TextMessage, subscribeJSON)
+
+	orderChannelEosEth := make(chan recvMessage, 100)
+	go orderbookWorker("EOS-ETH", orderChannelEosBtc)
 
 	// receive messages
 	go func() {
@@ -111,7 +138,25 @@ func main() {
 				if string(recvMess.Data) != "[]" {
 					// fmt.Println("Header:", recvMess.Header)
 					// fmt.Println("Data:", string(recvMess.Data))
-					orderChannel <- recvMess
+
+					switch {
+					case strings.Contains(recvMess.Header[0], "ETH-BTC"):
+						// fmt.Println("ETH-BTC")
+						// fmt.Println("Header:", recvMess.Header)
+						// fmt.Println("Data:", string(recvMess.Data))
+						//orderChannelEthBtc <- recvMess
+					case strings.Contains(recvMess.Header[0], "EOS-BTC"):
+						// fmt.Println("EOS-BTC")
+						// fmt.Println("Header:", recvMess.Header)
+						// fmt.Println("Data:", string(recvMess.Data))
+						//orderChannelEosBtc <- recvMess
+					case strings.Contains(recvMess.Header[0], "EOS-ETH"):
+						// fmt.Println("EOS-ETH")
+						fmt.Println("Header:", recvMess.Header)
+						// fmt.Println("UPDATE/STATE:", recvMess.Header[2])
+						fmt.Println("Data:", string(recvMess.Data))
+						orderChannelEosEth <- recvMess
+					}
 				}
 
 			}
@@ -157,6 +202,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 	ob.market = market
 
 	for message := range recvChannel {
+		fmt.Println("----------- BEGIN Orderbook processing -----------")
 		objmap := map[string]*json.RawMessage{}
 		bids := []orderbookPosition{}
 		asks := []orderbookPosition{}
@@ -168,7 +214,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 			json.Unmarshal(*objmap["bids"], &bids)
 			json.Unmarshal(*objmap["asks"], &asks)
 
-			if message.Header[2] == "s" {
+			if strings.Contains(message.Header[2], "s") {
 				fmt.Println("----------- BEGIN State -----------")
 				var wg sync.WaitGroup
 				wg.Add(2)
@@ -210,12 +256,15 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 						ob.bids.sortedKeys = append(ob.bids.sortedKeys, k)
 					}
 					sort.Slice(ob.bids.sortedKeys, func(i, j int) bool {
-						return ob.bids.sortedKeys[i].GreaterThan(ob.bids.sortedKeys[j])
+						a, _ := decimal.NewFromString(ob.bids.sortedKeys[i])
+						b, _ := decimal.NewFromString(ob.bids.sortedKeys[j])
+						return a.GreaterThan(b)
 					})
 
 				}()
 				wg.Wait()
 				init = true
+				fmt.Println("Init: ", market)
 
 				fmt.Println("----------- Bids -----------")
 				for _, k := range ob.bids.sortedKeys {
@@ -228,11 +277,12 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 				}
 
 				fmt.Println("----------- END State -----------")
+				return
 			} else {
-				fmt.Println(string(message.Data))
+				// fmt.Println(string(message.Data))
 				if init == true {
-					fmt.Println("----------- Update -----------")
-					var wg sync.WaitGroup
+					// fmt.Println("----------- Update -----------")
+					var wg = sync.WaitGroup{}
 					wg.Add(2)
 
 					//process asks
@@ -240,7 +290,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 						defer wg.Done()
 
 						for _, e := range asks {
-							v, ok := ob.asks.elements[e.price]
+							v, ok := ob.asks.elements[e.price.String()]
 
 							if ok {
 								//entry for this price is present
@@ -254,25 +304,28 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 								if v.LessThanOrEqual(decimal.NewFromFloat(0)) {
 									//no remaining volume at this price
 									//remove from elements
-									delete(ob.asks.elements, e.price)
+									delete(ob.asks.elements, e.price.String())
 									//remove key from sortedkeys
 									for i, v := range ob.asks.sortedKeys {
-										if v == e.price {
+										if v == e.price.String() {
 											ob.asks.sortedKeys = append(ob.asks.sortedKeys[:i], ob.asks.sortedKeys[i+1:]...)
 											break
 										}
 									}
 								} else {
-									ob.asks.elements[e.price] = v
+									ob.asks.elements[e.price.String()] = v
 								}
 							} else {
 								//add new entry for this price
-								ob.asks.elements[e.price] = e.size.Mul(e.count)
+								ob.asks.elements[e.price.String()] = e.size.Mul(e.count)
 								//insert key into sorted keys
-								i := sort.Search(len(ob.asks.sortedKeys), func(i int) bool { return ob.asks.sortedKeys[i].GreaterThan(e.price) })
-								ob.asks.sortedKeys = append(ob.asks.sortedKeys, decimal.NewFromFloat(0))
+								i := sort.Search(len(ob.asks.sortedKeys), func(i int) bool {
+									a, _ := decimal.NewFromString(ob.asks.sortedKeys[i])
+									return a.GreaterThan(e.price)
+								})
+								ob.asks.sortedKeys = append(ob.asks.sortedKeys, "NEW")
 								copy(ob.asks.sortedKeys[i+1:], ob.asks.sortedKeys[i:])
-								ob.asks.sortedKeys[i] = e.price
+								ob.asks.sortedKeys[i] = e.price.String()
 							}
 						}
 					}()
@@ -282,7 +335,7 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 						defer wg.Done()
 
 						for _, e := range bids {
-							v, ok := ob.bids.elements[e.price]
+							v, ok := ob.bids.elements[e.price.String()]
 
 							if ok {
 								//entry for this price is present
@@ -296,40 +349,43 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 								if v.LessThanOrEqual(decimal.NewFromFloat(0)) {
 									//no remaining volume at this price
 									//remove from elements
-									delete(ob.bids.elements, e.price)
+									delete(ob.bids.elements, e.price.String())
 									//remove key from sortedkeys
 									for i, v := range ob.bids.sortedKeys {
-										if v == e.price {
+										if v == e.price.String() {
 											ob.bids.sortedKeys = append(ob.bids.sortedKeys[:i], ob.bids.sortedKeys[i+1:]...)
 											break
 										}
 									}
 								} else {
-									ob.bids.elements[e.price] = v
+									ob.bids.elements[e.price.String()] = v
 								}
 							} else {
 								//add new entry for this price
-								ob.bids.elements[e.price] = e.size.Mul(e.count)
+								ob.bids.elements[e.price.String()] = e.size.Mul(e.count)
 								//insert key into sorted keys
-								i := sort.Search(len(ob.bids.sortedKeys), func(i int) bool { return ob.bids.sortedKeys[i].LessThan(e.price) })
-								ob.bids.sortedKeys = append(ob.bids.sortedKeys, decimal.NewFromFloat(0))
+								i := sort.Search(len(ob.bids.sortedKeys), func(i int) bool {
+									a, _ := decimal.NewFromString(ob.bids.sortedKeys[i])
+									return a.LessThan(e.price)
+								})
+								ob.bids.sortedKeys = append(ob.bids.sortedKeys, "NEW")
 								copy(ob.bids.sortedKeys[i+1:], ob.bids.sortedKeys[i:])
-								ob.bids.sortedKeys[i] = e.price
+								ob.bids.sortedKeys[i] = e.price.String()
 							}
 						}
 					}()
 
 					wg.Wait()
 
-					fmt.Println("----------- Bids -----------")
-					for _, k := range ob.bids.sortedKeys {
-						fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
-					}
+					// fmt.Println("----------- Bids -----------")
+					// for _, k := range ob.bids.sortedKeys {
+					// 	fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
+					// }
 
-					fmt.Println("----------- Asks -----------")
-					for _, k := range ob.asks.sortedKeys {
-						fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
-					}
+					// fmt.Println("----------- Asks -----------")
+					// for _, k := range ob.asks.sortedKeys {
+					// 	fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
+					// }
 				}
 			}
 		}
