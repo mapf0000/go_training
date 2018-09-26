@@ -1,4 +1,4 @@
-package gogekko
+package main
 
 import (
 	"encoding/json"
@@ -9,12 +9,12 @@ import (
 	"os"
 	"os/signal"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/shopspring/decimal"
 )
 
 var addr = flag.String("addr", "ws.cobinhood.com", "http service address")
@@ -33,14 +33,14 @@ type recvMessage struct {
 }
 
 type orderbookPosition struct {
-	price int64
-	size  int64
-	count int64
+	price decimal.Decimal
+	size  decimal.Decimal
+	count decimal.Decimal
 }
 
 type sortedOrders struct {
-	elements   map[int64]int64
-	sortedKeys []int64
+	elements   map[string]decimal.Decimal
+	sortedKeys []string
 }
 
 type orderbook struct {
@@ -53,58 +53,10 @@ func (o *orderbookPosition) UnmarshalJSON(bs []byte) error {
 	arr := []interface{}{}
 	json.Unmarshal(bs, &arr)
 	// TODO: add error handling here.
-	o.price = parseIntMoney(arr[0].(string))
-	o.size, _ = strconv.ParseInt(arr[1].(string), 10, 64)
-	o.count = parseIntMoney(arr[2].(string))
+	o.price, _ = decimal.NewFromString(arr[0].(string))
+	o.size, _ = decimal.NewFromString(arr[1].(string))
+	o.count, _ = decimal.NewFromString(arr[2].(string))
 	return nil
-}
-
-// func (o *orderbookPosition) UnmarshalJSON(bs []byte) error {
-// 	arr := []interface{}{}
-// 	json.Unmarshal(bs, &arr)
-// 	// TODO: add error handling here.
-// 	o.Price, _ = strconv.ParseFloat(arr[0].(string), 64)
-// 	o.Size, _ = strconv.Atoi(arr[1].(string))
-// 	o.Count, _ = strconv.ParseFloat(arr[2].(string), 64)
-// 	return nil
-// }
-
-func parseIntMoney(s string) int64 {
-	fmt.Println(s)
-	if strings.Contains(s, ".") {
-		s = strings.Replace(s, ".", "", -1)
-	} else {
-		s = s + "000000"
-	}
-
-	i, _ := strconv.ParseInt(s, 10, 64)
-	return i
-}
-
-func formatDecimal(amount int64, precision int) string {
-	// Work with absolute amount value
-	var abs int64
-	if amount < 0 {
-		abs = -amount
-	} else {
-		abs = amount
-	}
-	sa := strconv.FormatInt(abs, 10)
-
-	if len(sa) <= precision {
-		sa = strings.Repeat("0", precision-len(sa)+1) + sa
-	}
-
-	if precision > 0 {
-		sa = sa[:len(sa)-precision] + "." + sa[len(sa)-precision:]
-	}
-
-	// Add minus sign for negative amount
-	if amount < 0 {
-		sa = "-" + sa
-	}
-
-	return sa
 }
 
 func main() {
@@ -148,19 +100,17 @@ func main() {
 		var recvMess recvMessage
 
 		for {
-			_, message, err := c.ReadMessage()
+			err := c.ReadJSON(&recvMess)
 			if err != nil {
 				log.Println("read:", err)
 				return
 			}
-			//fmt.Println(string(message))
-			json.Unmarshal(message, &recvMess)
 
 			if strings.Contains(recvMess.Header[0], "order-book") {
 
 				if string(recvMess.Data) != "[]" {
-					//fmt.Println("Header:", recvMess.Header)
-					//fmt.Println("Data:", string(recvMess.Data))
+					// fmt.Println("Header:", recvMess.Header)
+					// fmt.Println("Data:", string(recvMess.Data))
 					orderChannel <- recvMess
 				}
 
@@ -202,7 +152,6 @@ func main() {
 }
 
 func orderbookWorker(market string, recvChannel <-chan recvMessage) {
-	precision := 6
 	init := false
 	ob := orderbook{}
 	ob.market = market
@@ -228,18 +177,20 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 				go func() {
 					defer wg.Done()
 					//fill map with order positions
-					ob.asks.elements = make(map[int64]int64)
+					ob.asks.elements = make(map[string]decimal.Decimal)
 					for _, e := range asks {
-						ob.asks.elements[e.price] = e.count * e.size
+						ob.asks.elements[e.price.String()] = e.size.Mul(e.count)
 					}
 
 					//create sorted key slice as lookup
-					ob.asks.sortedKeys = []int64{}
+					ob.asks.sortedKeys = []string{}
 					for k := range ob.asks.elements {
 						ob.asks.sortedKeys = append(ob.asks.sortedKeys, k)
 					}
 					sort.Slice(ob.asks.sortedKeys, func(i, j int) bool {
-						return ob.asks.sortedKeys[i] < ob.asks.sortedKeys[j]
+						a, _ := decimal.NewFromString(ob.asks.sortedKeys[i])
+						b, _ := decimal.NewFromString(ob.asks.sortedKeys[j])
+						return a.LessThan(b)
 					})
 
 				}()
@@ -248,18 +199,18 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 				go func() {
 					defer wg.Done()
 					//fill map with order positions
-					ob.bids.elements = make(map[int64]int64)
+					ob.bids.elements = make(map[string]decimal.Decimal)
 					for _, e := range bids {
-						ob.bids.elements[e.price] = e.size * e.count
+						ob.bids.elements[e.price.String()] = e.size.Mul(e.count)
 					}
 
 					//create sorted key slice as lookup
-					ob.bids.sortedKeys = []int64{}
+					ob.bids.sortedKeys = []string{}
 					for k := range ob.bids.elements {
 						ob.bids.sortedKeys = append(ob.bids.sortedKeys, k)
 					}
 					sort.Slice(ob.bids.sortedKeys, func(i, j int) bool {
-						return ob.bids.sortedKeys[i] > ob.bids.sortedKeys[j]
+						return ob.bids.sortedKeys[i].GreaterThan(ob.bids.sortedKeys[j])
 					})
 
 				}()
@@ -268,15 +219,13 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 				fmt.Println("----------- Bids -----------")
 				for _, k := range ob.bids.sortedKeys {
-					fmt.Println("Price:", formatDecimal(k, precision), "Amount:", formatDecimal(ob.bids.elements[k], precision))
+					fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
 				}
 
 				fmt.Println("----------- Asks -----------")
 				for _, k := range ob.asks.sortedKeys {
-					fmt.Println("Price:", formatDecimal(k, precision), "Amount:", formatDecimal(ob.asks.elements[k], precision))
+					fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
 				}
-
-				return
 
 				fmt.Println("----------- END State -----------")
 			} else {
@@ -295,14 +244,14 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 							if ok {
 								//entry for this price is present
-								if e.size < 0 {
+								if e.size.LessThan(decimal.NewFromFloat(0)) {
 									//diff
-									v -= -1 * e.size * e.count
+									v = v.Sub(e.size.Mul(e.count))
 								} else {
 									//add
-									v += e.size * e.count
+									v = v.Add(e.size.Mul(e.count))
 								}
-								if v <= 0 {
+								if v.LessThanOrEqual(decimal.NewFromFloat(0)) {
 									//no remaining volume at this price
 									//remove from elements
 									delete(ob.asks.elements, e.price)
@@ -318,10 +267,10 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 								}
 							} else {
 								//add new entry for this price
-								ob.asks.elements[e.price] = e.size * e.count
+								ob.asks.elements[e.price] = e.size.Mul(e.count)
 								//insert key into sorted keys
-								i := sort.Search(len(ob.asks.sortedKeys), func(i int) bool { return ob.asks.sortedKeys[i] > e.price })
-								ob.asks.sortedKeys = append(ob.asks.sortedKeys, 0)
+								i := sort.Search(len(ob.asks.sortedKeys), func(i int) bool { return ob.asks.sortedKeys[i].GreaterThan(e.price) })
+								ob.asks.sortedKeys = append(ob.asks.sortedKeys, decimal.NewFromFloat(0))
 								copy(ob.asks.sortedKeys[i+1:], ob.asks.sortedKeys[i:])
 								ob.asks.sortedKeys[i] = e.price
 							}
@@ -337,15 +286,14 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 							if ok {
 								//entry for this price is present
-								delete(ob.bids.elements, e.price)
-								if e.size < 0 {
+								if e.size.LessThan(decimal.NewFromFloat(0)) {
 									//diff
-									v -= -1 * e.size * e.count
+									v = v.Sub(e.size.Mul(e.count))
 								} else {
 									//add
-									v += e.size * e.count
+									v = v.Add(e.size.Mul(e.count))
 								}
-								if v <= 0 {
+								if v.LessThanOrEqual(decimal.NewFromFloat(0)) {
 									//no remaining volume at this price
 									//remove from elements
 									delete(ob.bids.elements, e.price)
@@ -361,10 +309,10 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 								}
 							} else {
 								//add new entry for this price
-								ob.bids.elements[e.price] = e.size * e.count
+								ob.bids.elements[e.price] = e.size.Mul(e.count)
 								//insert key into sorted keys
-								i := sort.Search(len(ob.bids.sortedKeys), func(i int) bool { return ob.bids.sortedKeys[i] < e.price })
-								ob.bids.sortedKeys = append(ob.bids.sortedKeys, 0)
+								i := sort.Search(len(ob.bids.sortedKeys), func(i int) bool { return ob.bids.sortedKeys[i].LessThan(e.price) })
+								ob.bids.sortedKeys = append(ob.bids.sortedKeys, decimal.NewFromFloat(0))
 								copy(ob.bids.sortedKeys[i+1:], ob.bids.sortedKeys[i:])
 								ob.bids.sortedKeys[i] = e.price
 							}
@@ -373,15 +321,15 @@ func orderbookWorker(market string, recvChannel <-chan recvMessage) {
 
 					wg.Wait()
 
-					// fmt.Println("----------- Bids -----------")
-					// for _, k := range ob.bids.sortedKeys {
-					// 	fmt.Println("Price:", formatDecimal(k, precision), "Amount:", formatDecimal(ob.bids.elements[k], precision))
-					// }
+					fmt.Println("----------- Bids -----------")
+					for _, k := range ob.bids.sortedKeys {
+						fmt.Println("Price:", k, "Amount:", ob.bids.elements[k])
+					}
 
-					// fmt.Println("----------- Asks -----------")
-					// for _, k := range ob.asks.sortedKeys {
-					// 	fmt.Println("Price:", formatDecimal(k, precision), "Amount:", formatDecimal(ob.asks.elements[k], precision))
-					// }
+					fmt.Println("----------- Asks -----------")
+					for _, k := range ob.asks.sortedKeys {
+						fmt.Println("Price:", k, "Amount:", ob.asks.elements[k])
+					}
 				}
 			}
 		}
