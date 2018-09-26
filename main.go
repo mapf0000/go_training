@@ -125,13 +125,22 @@ func main() {
 	go orderbookWorker("ETH-USDT", orderChannelEthUSD, obChEthUSD)
 
 	go func() {
-
+		var ob1 orderbook
+		var ob2 orderbook
+		var ob3 orderbook
 		for {
 			select {
-			case <-obChEthBtc:
-			case <-obChBtcUSD:
-			case <-obChEthUSD:
+			case ob1 = <-obChEthBtc:
+			case ob2 = <-obChBtcUSD:
+			case ob3 = <-obChEthUSD:
 			}
+			a := ob1.asks.sortedKeys[0] //verkauf eth, preis btc
+			b := ob2.asks.sortedKeys[0] //verkauf usd, preis btc
+			c := ob3.asks.sortedKeys[0] //verkauf 
+
+			fmt.Println("Preis a:", a)
+			fmt.Println("Preis b:", b)
+			fmt.Println("Preis c:", c)
 		}
 	}()
 
