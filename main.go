@@ -128,19 +128,28 @@ func main() {
 		var ob1 orderbook
 		var ob2 orderbook
 		var ob3 orderbook
+		set1 := false
+		set2 := false
+		set3 := false
 		for {
 			select {
 			case ob1 = <-obChEthBtc:
+				set1 = true
 			case ob2 = <-obChBtcUSD:
+				set2 = true
 			case ob3 = <-obChEthUSD:
+				set3 = true
 			}
-			a := ob1.asks.sortedKeys[0] //verkauf eth, preis btc
-			b := ob2.asks.sortedKeys[0] //verkauf usd, preis btc
-			c := ob3.asks.sortedKeys[0] //verkauf 
+			if set1 && set2 && set3 {
+				a := ob1.asks.sortedKeys[0] //verkauf eth, preis btc
+				b := ob2.asks.sortedKeys[0] //verkauf usd, preis btc
+				c := ob3.asks.sortedKeys[0] //verkauf
+	
+				fmt.Println("Preis a:", a)
+				fmt.Println("Preis b:", b)
+				fmt.Println("Preis c:", c)
+			}
 
-			fmt.Println("Preis a:", a)
-			fmt.Println("Preis b:", b)
-			fmt.Println("Preis c:", c)
 		}
 	}()
 
